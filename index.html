@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AR Experience</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin:0; height:100%; background:#000; overflow:hidden; overscroll-behavior:none;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#fff; -webkit-user-select:none; user-select:none; }
+  #stage { position:fixed; inset:0; width:100vw; height:100vh; height:100dvh; background:#000; }
+  video { position:absolute; inset:0; width:100%; height:100%; }
+  #cam { object-fit:cover; }
+  /* Black pixels in the overlay video become transparent: "screen" blending adds the video
+     to the camera image, so pure black adds nothing. */
+  #fx  { object-fit:contain; mix-blend-mode:screen; pointer-events:none; }
+  .panel { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; padding:24px; text-align:center; background:rgba(0,0,0,.88); z-index:10; }
+  .panel.show { display:flex; }
+  .panel h1 { margin:0; font-size:26px; font-weight:650; }
+  .panel p { margin:0; max-width:34em; line-height:1.45; color:#d6d6d6; font-size:16px; }
+  .panel ol { margin:0; padding-left:1.2em; text-align:left; max-width:30em; line-height:1.5; color:#d6d6d6; }
+  button { font:inherit; font-size:18px; font-weight:600; padding:14px 34px; border-radius:999px; border:0;
+    background:#fff; color:#000; cursor:pointer; }
+  button.ghost { background:transparent; color:#bbb; border:1px solid #555; font-size:15px; padding:10px 22px; }
+  .quote { font-style:italic; font-size:18px !important; color:#e8e8e8 !important; margin-top:10px !important; }
+  .hint { font-size:14px !important; color:#9a9a9a !important; }
+  /* Portrait nag, only once the experience has started */
+  #rotate { z-index:20; background:#000; }
+  body.started #rotate.armed { display:none; }
+  @media (orientation: portrait) { body.started #rotate.armed { display:flex; } }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="cam" autoplay muted playsinline></video>
+  <video id="fx" playsinline muted loop preload="auto"></video>
+</div>
+
+<div id="start" class="panel show">
+  <h1>Hold your phone horizontally.</h1>
+  <button id="go">Start</button>
+  <p class="quote">&ldquo;The wood down there is petrifying.&rdquo;</p>
+</div>
+
+<div id="ios" class="panel">
+  <h1>Add this to your home screen first</h1>
+  <p>Safari on iPhone always shows its toolbar. Opening this from your home screen removes it, so the experience fills the whole screen.</p>
+  <ol>
+    <li>Tap the <b>Share</b> button
+      <svg width="16" height="18" viewBox="0 0 16 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M8 11V1M4.5 4.5 8 1l3.5 3.5M3 7H2v10h12V7h-1"/></svg>
+      at the bottom of Safari.</li>
+    <li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+    <li>Close Safari and open the new icon from your home screen.</li>
+  </ol>
+  <p id="inAppNote" class="hint" style="display:none">You seem to be inside another app. Tap the &bull;&bull;&bull; or Share menu and choose <b>Open in Safari</b> first.</p>
+  <button id="skipIos" class="ghost">Continue without full screen</button>
+</div>
+
+<div id="rotate" class="panel armed">
+  <h1>Hold your phone horizontally.</h1>
+</div>
+
+<div id="err" class="panel">
+  <h1>Camera is blocked</h1>
+  <p id="errMsg">This experience needs your camera.</p>
+  <ol>
+    <li><b>Open this link in Safari or Chrome</b>, not inside Instagram, Messenger, or another app.</li>
+    <li><b>iPhone:</b> tap the <b>aA</b> icon, then Website Settings, then Camera, then Allow.</li>
+    <li><b>Android:</b> tap the lock icon, then Permissions, then Camera, then Allow.</li>
+    <li>Reload the page and tap Start.</li>
+  </ol>
+  <button id="retry">Try again</button>
+  <button id="nocam" class="ghost">Watch without camera</button>
+</div>
+
+<script>
+/* ---------- EDIT THESE ---------- */
+const CONFIG = {
+  VIDEO_SRC: "DARKCARNIVALOVERLAY.mp4",   // path or URL of the AR video (black background)
+  MUTED: false,                  // false = play the video's sound (the Start tap allows it)
+  FIT: "cover",                // "contain" = whole video visible, "cover" = fill the screen
+  OPACITY: 1,                    // 0 to 1
+  FACING: "environment"          // "environment" = back camera, "user" = front camera
+};
+/* -------------------------------- */
+
+const $ = id => document.getElementById(id);
+const cam = $("cam"), fx = $("fx"), root = document.documentElement;
+fx.src = CONFIG.VIDEO_SRC;
+fx.style.objectFit = CONFIG.FIT;
+fx.style.opacity = CONFIG.OPACITY;
+
+const canFS = !!(root.requestFullscreen || root.webkitRequestFullscreen);
+const standalone = matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches || navigator.standalone;
+// Browsers that can't go full screen (iPhone Safari) get a home-screen prompt before the experience.
+const inApp = /Instagram|FBAN|FBAV|FB_IAB|Messenger|Snapchat|TikTok|Line\/|MicroMessenger/i.test(navigator.userAgent);
+if (!canFS && !standalone) {
+  $("start").classList.remove("show");
+  $("ios").classList.add("show");
+  if (inApp) $("inAppNote").style.display = "block";
+}
+$("skipIos").addEventListener("click", () => { $("ios").classList.remove("show"); $("start").classList.add("show"); });
+
+let stream = null;
+
+async function goFullscreen() {
+  try {
+    if (root.requestFullscreen) await root.requestFullscreen({ navigationUI: "hide" });
+    else if (root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+  } catch (e) {}
+  try { await screen.orientation.lock("landscape"); } catch (e) {}  // Android Chrome only
+}
+
+async function startCamera() {
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: CONFIG.FACING }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    audio: false
+  });
+  cam.srcObject = stream;
+  await cam.play().catch(() => {});
+}
+
+function showError(msg) {
+  $("errMsg").textContent = msg;
+  $("start").classList.remove("show");
+  $("err").classList.add("show");
+}
+
+async function begin({ withCamera = true } = {}) {
+  $("err").classList.remove("show");
+  fx.muted = CONFIG.MUTED;
+  goFullscreen();                       // must run inside the tap handler
+  if (withCamera) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return showError("This browser can't access the camera. Try Safari or Chrome.");
+    }
+    try { await startCamera(); }
+    catch (e) {
+      const denied = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+      return showError(denied ? "Camera permission was denied." : "Couldn't start the camera (" + (e && e.name) + ").");
+    }
+  }
+  try { await fx.play(); } catch (e) { fx.muted = true; fx.play().catch(() => {}); }
+  $("start").classList.remove("show");
+  document.body.classList.add("started");
+  try { navigator.wakeLock && navigator.wakeLock.request("screen"); } catch (e) {}
+}
+
+$("go").addEventListener("click", () => begin());
+$("retry").addEventListener("click", () => begin());
+$("nocam").addEventListener("click", () => begin({ withCamera: false }));
+
+// Tap anywhere to re-enter full screen if the user left it
+$("stage").addEventListener("click", () => {
+  if (canFS && document.body.classList.contains("started") && !(document.fullscreenElement || document.webkitFullscreenElement)) goFullscreen();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && document.body.classList.contains("started")) { fx.play().catch(() => {}); cam.play().catch(() => {}); }
+});
+</script>
+</body>
+</html>
